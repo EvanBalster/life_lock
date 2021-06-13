@@ -14,9 +14,9 @@ This header was designed for use with observer patterns and asynchronous I/O, al
 
 Copy `life_lock.h` into your include directory.
 
-**Option 1**:  For maximum safety, wrap the protected object in `life_locked<T>`.  This type behaves similar to `std::optional`, additionally providing a `get_weak` method for utilizing smart pointers.  The contained object is always destroyed *after* the Life Lock.
+**Option 1**:  For greater safety, wrap the protected object in `life_locked<T>`.  This type behaves similar to `std::optional`, additionally providing a `get_weak` method for utilizing smart pointers.  The contained object is always destroyed *after* the Life Lock.
 
-**Option 2**:  For greater flexibility, an instance of the `life_lock` class can exist inside (or outside!) the object to be protected.  In this case, the Life Lock should usually be destroyed before or early in the object's destructor.  Incautious use can result in data races.
+**Option 2**:  For greater flexibility, instances of the `life_lock` class can exist inside (or outside!) the object to be protected.  In this case, Life Locks should usually be destroyed early in the object's destructor, before any concurrently-accessed members are torn down.
 
 **Either way**...
 
@@ -28,15 +28,15 @@ Copy `life_lock.h` into your include directory.
     * Otherwise, the object is guaranteed to exist at least as long as the shared pointer.
   * Release the shared pointer as soon as you can to keep things running smoothly.
 
-Technically, it is possible to have many Life Locks protecting the same object (or nested objects), so long as each lock is destroyed before the data it protects.
+It is possible to have many Life Locks protecting the same object (or nested objects).  This can mitigate contention if many different threads 
 
 ## Pitfalls
 
 1. If `life_lock` is a member of an abstract class, `destroy()` should be explicitly called from the destructors of any non-abstract child classes in order to avoid pure virtual function calls.
 2. Destroying a `life_lock` in a thread that holds a shared pointer created from it will cause **deadlock**.  (Avoid this by holding weak pointers instead.)
-3. If other threads hold shared pointers derived from a life_lock for long, overlapping periods of time, **livelock** may result.  (Avoid this by minimizing the lifetime of shared pointers, or by creating multiple Life Locks for different callers.)
-4. `life_lock` does not protect against data races other than destruction.  If multiple threads interact with the object's members during its lifetime, ordinary multithreading precautions should be taken
-5. Remember that `life_lock` pointers behave differently than those created with `make_shared` or `new`, despite being the same type.  It's possible to use both kinds of shared_ptr at the same time, but the effects of their expiration will be different.
+3. If other threads hold shared pointers derived from a life_lock for long, overlapping periods of time, **livelock** may result.  (Avoid this by holding shared pointers as briefly as possible, and/or creating multiple Life Locks.)
+4. `life_lock` does not protect against data races other than destruction.  If multiple threads interact with the object's members during its lifetime, other forms of synchronization will be necessary.
+5. Remember that `life_lock` pointers behave differently than those created with `make_shared` or `new`, despite being the same type.  It's possible (and sometimes useful) to use both kinds of shared_ptr with the same object at the same time.
 
 ## How it Works
 
@@ -47,12 +47,13 @@ A newly-initialized `life_lock` creates and holds a `shared_ref` with a special 
 * Create a temporary `shared_ptr` from the `shared_ref`.
 * Destroy the `shared_ref`, repurposing its memory as a locked `atomic_flag`.
 * Destroy the temporary  `shared_ptr`.
-* Wait for the `atomic_flag` to be unlocked...
-  * Most often, the `life_lock` itself held the only reference and no delay is needed.
-  * Otherwise, spin for up to `LIFE_LOCK_SPIN_USEC` microseconds.
-  * Then, check and sleep with exponential backoff from 1 microsecond up to `LIFE_LOCK_SLEEP_MAX_USEC` microseconds.
+* Wait for the `atomic_flag` to be unlocked.
 
-If `LIFE_LOCK_CPP20` is defined to `1` or undefined on a C++ compiler, `atomic_flag::wait`/`notify_one` will be used rather than this adaptive spinning behavior.
+If `LIFE_LOCK_CPP20` is defined to `1` or undefined on a C++ compiler, `atomic_flag::wait`/`notify_one` will be used for waiting on the atomic flag.  Otherwise, a configurable "timed backoff" behavior will be used:
+
+* Most often, the `life_lock` itself held the only reference and no delay is needed.
+* Otherwise, spin for up to `LIFE_LOCK_SPIN_USEC` microseconds.
+* Then, check and sleep with exponential backoff from 1 microsecond up to `LIFE_LOCK_SLEEP_MAX_USEC` microseconds.
 
 ## Efficiency and Optimization via Compression
 
@@ -69,7 +70,7 @@ With a typical optimized implementation of the standard C++ library...
 
 Defining `LIFE_LOCK_COMPRESSED` to `1` will enable a compression hack.  While this hack is technically non-standard and non-portable, it should work as expected with most C++11 libraries.  Compression shrinks `shared_ref` to a single pointer, based on the assumption that a `shared_ptr` has the following contents:
 
-* The pointer, which is either in position 0 or untagged and in position 1.
-* One additional pointer-sized member (to the control block).
+* The pointer, which is either in position 0 or, if in position 1, is not tagged or otherwise modified.
+* One additional pointer-sized member (which refers somehow to the control block).
 
-These assumptions are most likely to hold in *release mode*
+`LIFE_LOCK_COMPRESSED` may only work in release mode on some platforms.

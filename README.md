@@ -3,12 +3,11 @@
 
 life_lock creates weak and shared pointers that *delay* the destruction of an object rather than taking over its deletion.  Life-locked objects don't need to be allocated with `new` or `make_shared`: they can exist as local variables on the stack or as members of other classes.  By extension, this allows for control over which thread destroys the object.
 
-This header was designed for use with observer patterns and asynchronous I/O, allowing callers to concurrently access objects they don't own.  The one-time lock mechanism used here is much more lightweight than a mutex, using just one or two words of memory and an adaptive spinning behavior at destruction time.
+This header was designed for use with observer patterns and asynchronous I/O, allowing callers to concurrently access objects they don't own.  The one-time lock mechanism used here is much more lightweight than a mutex, using just one or two words of memory and atomic waiting behavior at destruction time.
 
 ## Requirements
 
-* A C++11-compatible compiler and runtime with support for `shared_ptr`.
-* Exceptions and RTTI are *not* required by this library.
+* A C++11-compatible compiler and runtime with basic support for `std::shared_ptr`, `std::weak_ptr` and atomics.
 
 ## How to use it
 
@@ -16,7 +15,11 @@ Copy `life_lock.h` into your include directory.
 
 **Option 1**:  For greater safety, wrap the protected object in `life_locked<T>`.  This type behaves similar to `std::optional`, additionally providing a `get_weak` method for utilizing smart pointers.  The contained object is always destroyed *after* the Life Lock.
 
+> `life_locked<T> myObject(T())`
+
 **Option 2**:  For greater flexibility, instances of the `life_lock` class can exist inside (or outside!) the object to be protected.  In this case, Life Locks should usually be destroyed early in the object's destructor, before any concurrently-accessed members are torn down.
+
+> `T myObject;  // has a life_lock member`
 
 **Either way**...
 
@@ -28,7 +31,17 @@ Copy `life_lock.h` into your include directory.
     * Otherwise, the object is guaranteed to exist at least as long as the shared pointer.
   * Release the shared pointer as soon as you can to keep things running smoothly.
 
-It is possible to have many Life Locks protecting the same object (or nested objects).  This can mitigate contention if many different threads 
+> ```C++
+> auto weakPtr = myObject.get_weak();
+> // ... often, weak pointer is passed to another thread ...
+> {
+>     auto myObjectPtr = weakPtr.lock();
+> 	myObjectPtr->receiveMessage("hello");
+>     // Shared pointer goes out of scope at the end of the block.
+> }
+> ```
+
+It is possible to have an unlimited number of Life Locks protecting the same object (or nested objects).  This can mitigate contention if many different threads need to concurrently access the object.
 
 ## Pitfalls
 

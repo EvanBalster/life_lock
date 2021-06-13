@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -30,8 +31,8 @@ protected:
 	inline static uint32_t _output(const uint64_t state) noexcept
 	{
 		// Calculate output function (XSH RR)
-		uint32_t xorshifted = ((state >> 18u) ^ state) >> 27u;
-		uint32_t rot = state >> 59u;
+		uint32_t xorshifted = uint32_t(((state >> 18u) ^ state) >> 27u);
+		uint32_t rot = uint32_t(state >> 59u);
 		return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
 	}
 
@@ -125,7 +126,7 @@ public:
 			std::cout << "FAIL: item submitted after receiver's life_lock destroyed" << std::endl;
 		}
 		
-		uint32_t index = _itemCount++;
+		size_t index = _itemCount++;
 		if (index < CAPACITY)
 		{
 			_items[index] = item;
@@ -165,7 +166,6 @@ public:
 			if (rcv)
 			{
 				test = rcv->test();
-				std::cout << "Sender @" << this << "/" << test.pattern << ": created" << std::endl;
 			}
 			else
 			{
@@ -182,14 +182,11 @@ public:
 
 	void run()
 	{
-		std::hash<uint32_t> hash;
-		uint32_t suffix;
-
 		while (true)
 		{
 			// Do some pointless, environmentally destructive work
 			uint32_t solution;
-			do {solution = random(); ++n_attempt;} while (!test(hash(solution)));
+			do {solution = random(); ++n_attempt;} while (!test(solution));
 			
 			++n_submit;
 			

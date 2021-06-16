@@ -230,6 +230,8 @@ namespace edb
 	};
 
 
+	// Placeholder for life_locked constructor
+	enum life_locked_empty_t    {life_locked_empty};
 
 	/*
 		This class contains an object protected by a life_lock.
@@ -242,8 +244,11 @@ namespace edb
 	{
 	public:
 		// Construct with T's constructor arguments, or T() for the default constructor.
-		template<typename Arg1, typename... Args>
-		life_locked(Arg1 &&arg1, Args&&... args)    {_lock = life_lock(new (_t()) T (std::forward<Arg1>(arg1), std::forward<Args>(args)...));}
+		template<typename... Args>
+		life_locked(Args&&... args)    {_lock = life_lock(new (_t()) T (std::forward<Args>(args)...));}
+		
+		// Construct life_locked in an empty/destroyed state.
+		life_locked(life_locked_empty_t)    {}
 
 		// Wait until all shared_ptr have expired and destroy the contained object.
 		~life_locked()    {destroy();}

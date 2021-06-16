@@ -254,10 +254,10 @@ namespace edb
 		void reset()      {if (_lock) {_lock.destroy(); raw_ptr()->~T();}}  // "reset" alias for consistency with std::optional
 
 		// Get weak pointer
-		std::weak_ptr<T>       get_weak() const noexcept    {return _lock.get_weak(raw_ptr());}
+		std::weak_ptr<const T> get_weak() const noexcept    {return _lock.get_weak(raw_ptr());}
 		std::weak_ptr<const T> get_weak()       noexcept    {return _lock.get_weak(raw_ptr());}
-		operator std::weak_ptr<T>      () const noexcept    {return _lock.get_weak(raw_ptr());}
-		operator std::weak_ptr<const T>()       noexcept    {return _lock.get_weak(raw_ptr());}
+		operator std::weak_ptr<const T>() const noexcept    {return _lock.get_weak(raw_ptr());}
+		operator std::weak_ptr<T>      ()       noexcept    {return _lock.get_weak(raw_ptr());}
 
 		// Check on contained value
 		bool has_value()         const noexcept    {return _lock;}

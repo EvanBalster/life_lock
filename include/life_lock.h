@@ -241,10 +241,7 @@ namespace edb
 	class life_locked
 	{
 	public:
-		// Construct an empty weak_holder.
-		life_locked()     : _lock() {}
-
-		// Construct a weak_holder with T's constructor arguments, or T() for the default constructor.
+		// Construct with T's constructor arguments, or T() for the default constructor.
 		template<typename Arg1, typename... Args>
 		life_locked(Arg1 &&arg1, Args&&... args)    {_lock = life_lock(new (_t()) T (std::forward<Arg1>(arg1), std::forward<Args>(args)...));}
 

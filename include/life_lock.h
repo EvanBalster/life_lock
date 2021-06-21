@@ -60,7 +60,7 @@ namespace edb
 	*/
 	namespace detail
 	{
-		void life_lock_wait(std::atomic_flag &lock)
+		inline void life_lock_wait(std::atomic_flag &lock)
 		{
 #if LIFE_LOCK_CPP20
 			// Use standard C++ library's notify mechanism.
@@ -245,15 +245,15 @@ namespace edb
 	public:
 		// Construct with T's constructor arguments, or T() for the default constructor.
 		template<typename... Args>
-		life_locked(Args&&... args)    {_lock = life_lock(new (_t()) T (std::forward<Args>(args)...));}
+		life_locked(Args&&... args)    : _lock(new (_t()) T (std::forward<Args>(args)...)) {}
 		
 		// Construct life_locked in an empty/destroyed state.
 		life_locked(life_locked_empty_t)    {}
 
 		// Wait until all shared_ptr have expired and destroy the contained object.
 		~life_locked()    {destroy();}
-		void destroy()    {if (_lock) {_lock.destroy(); raw_ptr()->~T();}}
-		void reset()      {if (_lock) {_lock.destroy(); raw_ptr()->~T();}}  // "reset" alias for consistency with std::optional
+		void destroy()    {if (_lock) {_lock.destroy(); _t()->~T();}}
+		void reset()      {if (_lock) {_lock.destroy(); _t()->~T();}}  // "reset" alias for consistency with std::optional
 
 		// Get weak pointer
 		std::weak_ptr      <T> get_weak()       noexcept    {return _lock.get_weak(raw_ptr());}

@@ -168,10 +168,10 @@ namespace edb
 		life_lock() noexcept                                                      {}
 
 		// Initialize a life_lock.
-		template<class T>              life_lock(T *ptr)              noexcept    : _ref(std::shared_ptr<std::atomic_flag>(&_lock(), unblocking_deleter{})) {}
+		template<class T>              life_lock(T *ptr)                          : _ref(std::shared_ptr<std::atomic_flag>(&_lock(), unblocking_deleter{})) {}
 		
 		// Initialize a life_lock with an allocator.
-		template<class T, class Alloc> life_lock(T *ptr, Alloc alloc) noexcept    : _ref(std::shared_ptr<std::atomic_flag>(&_lock(), unblocking_deleter{}, std::forward<Alloc>(alloc))) {}
+		template<class T, class Alloc> life_lock(T *ptr, Alloc alloc)             : _ref(std::shared_ptr<std::atomic_flag>(&_lock(), unblocking_deleter{}, std::forward<Alloc>(alloc))) {}
 
 		// Check if the life_lock is initialized.
 		explicit operator bool() const noexcept                                   {return bool(_ref);}
@@ -233,6 +233,21 @@ namespace edb
 		//    TODO consider an explicit cloning method for careful multithreaded use.
 		life_lock           (const life_lock &o) noexcept = delete;
 		life_lock& operator=(const life_lock &o) noexcept = delete;
+	};
+
+	/*
+		A life_lock applying to itself.
+			Suitable for use as a member of a protected object, subject to precautions. 
+
+		Differences:
+			Default constructs to an initialized lock.
+			Copy construction is enabled, but produces a new lock (not a clone).
+	*/
+	class life_lock_self : public life_lock
+	{
+	public:
+		life_lock_self()                          : life_lock(this) {}
+		life_lock_self(const life_lock_self&)     : life_lock(this) {}
 	};
 
 

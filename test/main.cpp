@@ -108,7 +108,7 @@ public:
 	}
 	
 	
-	std::weak_ptr<Receiver> get_weak()    {return _life.get_weak(this);}
+	std::weak_ptr<Receiver> get_weak()    {return _life.weak(this);}
 	
 	
 	// Is the receiver full?  Safe to call from anywhere.

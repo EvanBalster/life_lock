@@ -84,6 +84,52 @@ namespace edb
 			}
 #endif
 		}
+
+		// Memory buffer for placement new of smart pointers
+		struct smart_ptr_buf {void *v[(sizeof(std::shared_ptr<void>)+sizeof(void*)-1)/sizeof(void*)];};
+		static_assert(sizeof(std::shared_ptr<void>) <= sizeof(smart_ptr_buf), "shared_ptr has abnormal size on this platform");
+
+		/*
+			Smart pointer compression hackery.
+				Allows normative shared_ptr and weak_ptr to be reduced to control block pointer.
+				Optional and off by default.
+		*/
+#if LIFE_LOCK_COMPRESS // Memory saving hack for typical stdlib implementations
+		static_assert(sizeof(std::weak_ptr  <void>) == sizeof(void*[2]), "weak_ptr not compressible on this platform");
+		static_assert(sizeof(std::shared_ptr<void>) == sizeof(void*[2]), "smart pointer's size is unusual; can't locate control block pointer");
+
+		inline static bool control_block_pos() noexcept // Optimizing compilers will typically turn this into a constant value 1.
+		{
+			smart_ptr_buf b = {{(void*)0x1111,(void*)0x2222}};
+			return reinterpret_cast<std::shared_ptr<void>*>(b.v)->get() != b.v[1];
+		}
+
+		struct shared_control; // Opaque and undefined
+		struct weak_control;
+
+		template<class T> shared_control *control_block_ptr(const std::shared_ptr<T> &ptr) noexcept   {return (shared_control*) reinterpret_cast<const smart_ptr_buf&>(ptr).v[control_block_pos()];}
+		template<class T> weak_control   *control_block_ptr(const std::weak_ptr  <T> &ptr) noexcept   {return (weak_control*)   reinterpret_cast<const smart_ptr_buf&>(ptr).v[control_block_pos()];}
+
+		template<class T>
+		shared_control *shared_ptr_compress(std::shared_ptr<T> &&ptr)                noexcept
+		{
+			smart_ptr_buf buf;
+			return control_block_ptr<T>(* new (buf.v) std::shared_ptr<T>(std::move(ptr)));
+		}
+		template<class T>
+		std::shared_ptr<T> &shared_ptr_view(smart_ptr_buf &buf, shared_control *cb, T *t) noexcept
+		{
+			buf.v[!control_block_pos()] = t;
+			buf.v[ control_block_pos()] = (void*) (cb);
+			return *(std::shared_ptr<T>*) buf.v;
+		}
+		template<class T = void>
+		void shared_ptr_release(shared_control *const cb) noexcept
+		{
+			smart_ptr_buf buf;
+			shared_ptr_view<T>(buf, cb, nullptr).~shared_ptr();
+		}
+#endif
 	}
 
 
@@ -110,7 +156,7 @@ namespace edb
 
 		// Produce pointers using the same management
 		template<class T> std::shared_ptr<T> get_shared(T *obj) const noexcept    {buf sp; return _view<T>(obj, sp);}
-		template<class T> std::shared_ptr<T> get_weak  (T *obj) const noexcept    {buf sp; return _view<T>(obj, sp);}
+		template<class T> std::weak_ptr  <T> get_weak  (T *obj) const noexcept    {buf sp; return _view<T>(obj, sp);}
 
 		// Move/copy
 		shared_ref                 (shared_ref&&o) noexcept    {_cb = std::move(o._cb); o._cb = 0;}
@@ -121,19 +167,12 @@ namespace edb
 
 	private:
 		template<class T> using sptr_ = std::shared_ptr<T>;
-		struct buf     {void *v[sizeof(sptr_<void>)/sizeof(void*)];};
+		using                   buf   = detail::smart_ptr_buf;
 #if LIFE_LOCK_COMPRESS // Memory saving hack for typical stdlib implementations
-		static_assert(sizeof(sptr_<void>) == sizeof(void*[2]), "shared_ptr<T> not compressible on this platform");
-		inline static bool CBP()
-		{
-			// Optimizing compilers will typically turn this into a constant value 1.  Has some overhead in debug mode.
-			buf b = {{(void*)0x1111,(void*)0x2222}};
-			return reinterpret_cast<sptr_<void>*>(b.v)->get() != b.v[1];
-		}
-		uintptr_t _cb = 0;
-		template<class T> void            _init(sptr_<T> &&t)          noexcept    {buf sp; new (sp.v) sptr_<T>(std::move(t)); _cb = uintptr_t(sp.v[CBP()]);}
-		template<class T> const sptr_<T> &_view(T *obj, buf &sp) const noexcept    {sp.v[!CBP()] = obj; sp.v[CBP()] = (void*) (_cb); return *(sptr_<T>*) sp.v;}
-		void                              _clear()                     noexcept    {buf sp; _view(this, sp).~shared_ptr(); _cb = 0;}
+		detail::shared_control *_cb = 0;
+		template<class T> void            _init(sptr_<T> &&t)          noexcept    {_cb = detail::shared_ptr_compress(std::move(t));}
+		template<class T> const sptr_<T> &_view(T *obj, buf &sp) const noexcept    {return detail::shared_ptr_view(sp, _cb, obj);}
+		void                              _clear()                     noexcept    {detail::shared_ptr_release(_cb); _cb = 0;}
 #else   // Standard implementation -- stores a full shared_ptr, the pointer part of which is unused.
 		sptr_<void> _cb;
 		template<class T> void     _init(sptr_<T> &&t)          noexcept    {_cb = std::move(t);}
@@ -180,7 +219,8 @@ namespace edb
 			Get a weak_ptr to the object.
 				shared_ptr created from this weak_ptr will block life_lock's destruction.
 		*/
-		template<class T> std::weak_ptr  <T> get_weak  (T *ptr) const noexcept    {return _ref.get_weak  (ptr);}
+		template<class T> std::weak_ptr  <T> weak(T *ptr) const noexcept    {return _ref.get_weak  (ptr);}
+		template<class T> std::shared_ptr<T> lock(T *ptr) const noexcept    {return _ref.get_shared(ptr);}
 		
 		// It's perfectly possible for this class to produce shared_ptr directly, but it's an awful idea!
 		//template<class T> std::shared_ptr<T> get_shared(T *ptr) const noexcept    {return _ref.get_shared(ptr);}
@@ -277,10 +317,12 @@ namespace edb
 		void reset()      {if (_lock) {_lock.destroy(); _t()->~T();}}  // "reset" alias for consistency with std::optional
 
 		// Get weak pointer
-		std::weak_ptr      <T> get_weak()       noexcept    {return _lock.get_weak(raw_ptr());}
-		std::weak_ptr<const T> get_weak() const noexcept    {return _lock.get_weak(raw_ptr());}
-		operator std::weak_ptr      <T>()       noexcept    {return _lock.get_weak(raw_ptr());}
-		operator std::weak_ptr<const T>() const noexcept    {return _lock.get_weak(raw_ptr());}
+		std::weak_ptr        <T>   weak()       noexcept    {return _lock.weak(raw_ptr());}
+		std::weak_ptr  <const T>   weak() const noexcept    {return _lock.weak(raw_ptr());}
+		std::shared_ptr<      T>   lock()       noexcept    {return _lock.lock(raw_ptr());}
+		std::shared_ptr<const T>   lock() const noexcept    {return _lock.lock(raw_ptr());}
+		operator std::weak_ptr      <T>()       noexcept    {return _lock.weak(raw_ptr());}
+		operator std::weak_ptr<const T>() const noexcept    {return _lock.weak(raw_ptr());}
 
 		// Check on contained value
 		bool has_value()         const noexcept    {return _lock;}

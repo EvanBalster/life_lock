@@ -12,8 +12,9 @@
 
 
 #define LIFE_LOCK_COMPRESS 1
+#define SHARED_PTR_HACKS 0
 
-#include <life_lock.h>
+#include <life_lock.hpp>
 
 /*
 	M.E. O'Neill's wonderful Permuted Congruential Generator.
@@ -68,15 +69,19 @@ public:
 		ss << std::hex << "rcv@" << this << "/" << _test.pattern;
 		name = ss.str();
 		
-		std::cout << name << ": created\n" << std::flush;
+		ss << ": created\n";
+		std::cout << ss.str() << std::flush;
 	}
 
 	~Receiver()
 	{
-		std::cout << name << ": destroying...\n" << std::flush;
+
+		std::stringstream ss;
+		ss << name << ": destroying...\n" << std::flush;
+		std::cout << ss.str() << std::flush; ss.str("");
 		
 		// It's all over!!
-		_life.destroy();
+		auto destroy_spins = _life.destroy();
 		_no_more_submits = true;
 
 		// Verify...
@@ -85,26 +90,31 @@ public:
 			final_count = std::min<size_t>(final_submits, CAPACITY),
 			pass_count = 0;
 			
-		std::cout << name << ": " << final_submits << " were submitted\n" << std::flush;
+		ss << name << ": of " << final_submits << " sent, " << std::flush;
 
 		// Verify items
 		for (size_t i = 0; i < final_count; ++i)
 		{
 			if (_test(_items[i])) ++pass_count;
 		}
-		std::cout << name << ": " << pass_count << "/" << final_count << " passed" << std::endl;
+		ss << pass_count << "/" << final_count << " passed";
+		if (destroy_spins) ss << " ... destroy() spun " << destroy_spins << " times";
+		ss << std::endl;
 			
 		if (pass_count < final_count)
-			std::cout << "FAIL (hash): " << (final_count-pass_count) << " hashes" << std::endl;
+			ss << "FAIL (hash): " << (final_count-pass_count) << " hashes" << std::endl;
+
+		std::cout << ss.str() << std::flush; ss.str("");
 
 		// Ensure no items are submitted after destruction
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		if (_itemCount != CAPACITY)
 		{
-			std::cout << "FAIL (life_lock): received " << (_itemCount-CAPACITY) << " items after destruction" << std::endl;
+			ss << "FAIL (life_lock): received " << (_itemCount-CAPACITY) << " items after destruction" << std::endl;
 		}
 		
-		std::cout << name << ": finished" << std::endl;
+		ss << name << ": finished" << std::endl;
+		std::cout << ss.str() << std::flush; ss.str("");
 	}
 	
 	
@@ -123,7 +133,9 @@ public:
 	{
 		if (_no_more_submits)
 		{
-			std::cout << "FAIL: item submitted after receiver's life_lock destroyed" << std::endl;
+			std::stringstream ss;
+			ss << "FAIL: item submitted after receiver's life_lock destroyed" << std::endl;
+			std::cout << ss.str() << std::flush;
 		}
 		
 		size_t index = _itemCount++;
@@ -142,7 +154,7 @@ protected:
 	
 	edb::life_lock _life;
 
-	enum {CAPACITY = 32768};
+	enum {CAPACITY = 10000};
 	uint32_t            _items[CAPACITY];
 	std::atomic<size_t> _itemCount;
 	
@@ -169,7 +181,9 @@ public:
 			}
 			else
 			{
-				std::cout << "ODDITY: receiver expired before sender could start working (this is not necessarily an error)" << std::endl;
+				std::stringstream ss;
+				ss << "ODDITY: receiver expired before sender could start working (this is not necessarily an error)" << std::endl;
+				std::cout << ss.str() << std::flush;
 			}
 		}
 	}
@@ -225,7 +239,7 @@ int main(int argc, char **argv)
 		
 		do
 		{
-			std::thread sendThreads[8];
+			std::thread sendThreads[4];
 			
 			// Do the bad thing
 			std::weak_ptr<Receiver> test_ptr;
@@ -257,7 +271,7 @@ int main(int argc, char **argv)
 	
 	PCG_Rand rand(std::chrono::system_clock::now().time_since_epoch().count());
 	
-	std::thread rcvThreads[8];
+	std::thread rcvThreads[4];
 	for (auto &thread : rcvThreads)
 		thread = std::thread(RunReceiver, rand());
 		

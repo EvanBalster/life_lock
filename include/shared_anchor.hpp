@@ -73,6 +73,7 @@ namespace edb
 		public detail::anchor_base<std::shared_ptr>
 	{
 	public:
+		constexpr shared_anchor() noexcept = default;
 		using anchor_base::anchor_base;
 
 		// Create an explicitly empty shared_anchor.
@@ -103,6 +104,7 @@ namespace edb
 		public detail::anchor_base<std::weak_ptr>
 	{
 	public:
+		constexpr weak_anchor() noexcept = default;
 		using anchor_base::anchor_base;
 
 		// Create a weak_anchor from a shared_anchor or shared_ptr
